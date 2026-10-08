@@ -1,0 +1,28 @@
+diff --git a/src/newclid/generation/worker.py b/src/newclid/generation/worker.py
+index e53a40a..0f7bd6c 100644
+--- a/src/newclid/generation/worker.py
++++ b/src/newclid/generation/worker.py
+@@ -12,6 +12,8 @@ from newclid.dependencies.dependency import Dependency, IN_PREMISES, NUMERICAL_C
+ from newclid.configs import default_defs_path
+ from newclid.api import GeometricSolver, GeometricSolverBuilder, CSolver
+ import logging
++import os
++import random
+ import re
+ import string
+ import time
+@@ -198,6 +200,14 @@ class ProblemWorker:
+                 )
+             group_runtime = time.time() - group_runtime
+ 
++            # vlma-2 patch: keep at most GENESISGEO_MAX_GOAL_GROUPS goal groups per seed (figure).
++            # A figure with a rich structure otherwise yields dozens of problems, which makes
++            # a few figures dominate a large dataset. The choice is random but fixed by the seed.
++            max_goal_groups = int(os.environ.get("GENESISGEO_MAX_GOAL_GROUPS", "0"))
++            if max_goal_groups > 0 and len(eq_predicates_goals) > max_goal_groups:
++                kept = random.Random(seed).sample(sorted(eq_predicates_goals), max_goal_groups)
++                eq_predicates_goals = {k: eq_predicates_goals[k] for k in kept}
++
+             # then, process goal groups
+             process_goal_time = time.time()
+             generated_data = []

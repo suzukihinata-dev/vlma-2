@@ -1,0 +1,30 @@
+# R3: Qwen3.5-0.8B の学習用の環境。GenesisGeo のコードは入れない（データは作成済みで、学習側は vlma の展開だけを使う）。
+# 基本は PyTorch 2.8.0 + CUDA 12.8 の開発版（nvcc があり、Blackwell の GPU に対応する）。
+FROM pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel
+
+ENV PYTHONUNBUFFERED=1 PYTHONPATH=/opt/vlma2 HF_HOME=/hf-cache TOKENIZERS_PARALLELISM=false
+
+RUN apt-get update && apt-get install -y --no-install-recommends git ninja-build \
+    && rm -rf /var/lib/apt/lists/*
+
+# Qwen3.5 は transformers v5 系で対応している。版は、入ったものを下で記録する。
+RUN python -m pip install --no-cache-dir -U \
+      'transformers>=5.0' accelerate huggingface_hub safetensors pillow numpy \
+    && python -c 'import transformers; from transformers import Qwen3_5ForConditionalGeneration; print("transformers", transformers.__version__)'
+
+# Gated DeltaNet の高速化の部品。fla は Triton で動く。causal-conv1d は CUDA のビルドが要る（Blackwell は sm_120）。
+RUN python -m pip install --no-cache-dir flash-linear-attention \
+    && python -c 'import fla; print("fla", fla.__version__)'
+ENV TORCH_CUDA_ARCH_LIST="12.0" MAX_JOBS=8
+RUN python -m pip install --no-cache-dir --no-build-isolation causal-conv1d \
+    && python -c 'import causal_conv1d; print("causal_conv1d", causal_conv1d.__version__)' \
+    || echo "causal-conv1d のビルドに失敗した。PyTorch の代替処理になる。"
+
+# 一般文章（忘却の確認）の読み込みに使う。上の層を変えないよう、最後に足す。
+RUN python -m pip install --no-cache-dir pyarrow && python -c 'import pyarrow; print("pyarrow", pyarrow.__version__)'
+
+# Slack に添付する進捗のグラフ（_shared/slack_charts.py）。
+RUN python -m pip install --no-cache-dir matplotlib && python -c 'import matplotlib; print("matplotlib", matplotlib.__version__)'
+
+WORKDIR /opt/vlma2
+CMD ["bash"]

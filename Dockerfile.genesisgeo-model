@@ -1,0 +1,13 @@
+FROM vlma2-genesisgeo:r1
+
+# Official PyTorch CUDA 12.8 wheels support the WNPC Blackwell GPU.
+RUN python -m pip install --no-cache-dir \
+      torch==2.8.0 torchvision==0.23.0 \
+      --index-url https://download.pytorch.org/whl/cu128 \
+    && python -m pip install --no-cache-dir \
+      transformers==4.57.6 accelerate==1.15.0 \
+    && python -c 'import torch; from transformers import Qwen3VLForConditionalGeneration, AutoProcessor'
+
+COPY scripts/r1_genesisgeo_model_verify.py /usr/local/bin/r1_genesisgeo_model_verify.py
+
+CMD ["bash"]

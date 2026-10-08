@@ -1,0 +1,10 @@
+FROM vlma2-genesisgeo-model:r1
+
+# GenesisGeo's uv.lock selects vLLM 0.11.0; this is kept separate from the
+# smaller R1 model image because it is only needed for the closed-loop check.
+RUN python -m pip install --no-cache-dir \
+      vllm==0.11.0 qwen-vl-utils==0.0.14 \
+    && python -m pip check \
+    && python -c 'import vllm; print(vllm.__version__)'
+
+CMD ["bash"]

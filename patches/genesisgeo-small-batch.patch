@@ -1,0 +1,13 @@
+diff --git a/src/newclid/generation/pipeline.py b/src/newclid/generation/pipeline.py
+--- a/src/newclid/generation/pipeline.py
++++ b/src/newclid/generation/pipeline.py
+@@ -257,5 +257,9 @@ class ProblemPipeline:
+                         summary["n_proof_steps"] = [d["n_proof_steps"] for d in data]
+                         self.writer.write_data(data)
+                         self.summary_reporter.add(summary)
++                        # Small runs otherwise never reach Writer's 1000-item flush
++                        # threshold, so written_count stays at zero indefinitely.
++                        if self.writer.data_count >= self.n_samples:
++                            self.writer.write_data([], force=True)
+ 
+                         # Log progress when new data is written to file

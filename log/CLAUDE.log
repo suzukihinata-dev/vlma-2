@@ -1,0 +1,191 @@
+2026-10-06 R1 GenesisGeo vLLM 経由の公式探索スモーク（Claude が引き継ぎ）
+- WNPC の genesisgeo-vllm で公式 scripts/evaluation.py を d2/b2/depth1・1問（worlds_hardest_easy_geometry_problem1）で実行。未解決。LLM 2回・DDAR 5回・48.17秒。成功例とは数えない。
+- WNPC から取得したトレース JSONL を確認: 4候補すべてが parse→build→DDAR 投入まで成功し、結果は全て unsolved、エラーなし。閉ループの動作は確認、解答率は未測定。
+- 初回 LLM 呼び出し44.3秒（ウォームアップ由来と推測、未検証）、2回目0.3秒。fix_mistral_regex 警告は引き続き未調査。
+- docs/R1_GENESISGEO_SETUP.md に実行コマンドと結果を追記。
+- 次: 探索設定を広げた複数問題での解答率測定、トークナイザー警告の影響調査。
+
+2026-10-06 R1 完了判定
+- トークナイザー警告の調査: fix_mistral_regex の有無でトークンIDを比較。DSL・作図命令・述語列の4文で完全一致（4/4）。4文のみの確認で、自然文は未確認。
+- R1 を「各部品が動作する」基準で完了とした（基準は要件に未記載のため、ユーザーの「完了させて」を受けて採用）。docs/R1_GENESISGEO_SETUP.md に判定と根拠を追記。
+- R1 に含めず残すもの: 解答率の測定と論文値との比較、大規模生成速度、生成件数の厳密な制御（R2）、図の全件検証（R2）。
+
+2026-10-06 R2 計画と段階0（調査）
+- 方針を確定（1手ごとの対話型、GenesisGeo語彙の写像、thinking は空欄、目標10万問）。REQUIREMENTS.md に R2 詳細、PLAN.md に段階を追記。
+- GenesisGeo 固定版を調査し docs/R2_DESIGN.md に記録。証明の手は文字列 `結論 [id] 規則 [根拠id]` で、既存の parse_proof_step と try_full_aux_dsl_to_constructions を再利用できる。
+- 未確認: DDAR で「1手の妥当性」を検証できるか、補助作図を含むデータでの挙動、numerical_check/trivial の扱い。段階1で実験する。
+
+2026-10-06 R2 段階1（補助作図つきデータの再生検証）
+- REQUIREMENTS.md に設計上の決定3点（numerical_check/trivial は情報欄、作図は証明の前、「一意に」の解釈）を追記。
+- scripts/r2_gen_probe.sh（生成）と scripts/r2_replay_probe.py（再生検証）を追加。WNPC で実行。
+- `--aux_only 2` の生成: 79件・15秒（--n_samples 20 指定、件数制御は未解決）。R1 の56件は補助作図0件だった。
+- 再生: 目標到達で止める既定実行は、目標79/79、手の結論2227/2240。飽和まで実行すると目標79/79、手2240/2240。失敗13手は数値的に成立しseed無関係、DDARの早期停止が原因と判断。
+- 手の検証は飽和DDAR上の成立判定とする（docs/R2_DESIGN.md に記録）。規模は79件のみで、根拠idの正しさは未検証。
+- 次: 段階2（手ごとの形式への変換 to_steps、出力文字列の解析 parse_action、往復一致テスト）。
+
+2026-10-06 R2 推論ループのすり合わせ
+- 推論ループを HTML で可視化して提示（https://claude.ai/artifact/U7MA4ZLrWgEerUQK6DkMJ4）。
+- ユーザーの回答を REQUIREMENTS.md に記録: モデルが全手を1手ずつ出す／完了は DDAR が判定／却下は負例として使う／情報欄は GenesisGeo に合わせ LENGTH は足さない／図は作図のときのみ描き直す。
+- 解釈の確認事項: 「数値的な事実はいりません」を「LENGTH を足さない」と読み、numerical_check と trivial は残す。違う場合は修正する。
+
+2026-10-06 R2 段階2（手ごとの形式への変換と検証器）
+- vlma/actions.py, steps.py, verify.py と tests/（25件成功）を追加。docker-compose.yml の genesisgeo に vlma/tests のマウントと PYTHONPATH を追加。
+- scripts/r2_stage2_check.py を WNPC で実行（79件・2342ターン）: 往復一致79/79、全手受理79/79、完了が最後の手のみ79/79、壊した出力316/316が期待どおり却下。
+- 初回は2件が書式エラー（rconst の定数 1/2）。引数に定数を許して解決。
+- 設計訂正: 完了は「受理した手の結論が目標と一致」。飽和状態の目標成立では作図直後に完了してしまう（図と文書を訂正）。
+- 未実施: 負例データの生成、作図後の図（段階3）、10万問規模（段階4）。
+
+2026-10-06 R2 段階3（作図ごとの図）
+- vlma/figures.py を追加。GenesisGeo の推論時描画（draw_clause_figure + save_figure_as_png 512px）を再利用し、作図の数+1枚の図を描く。steps.py の image は図ごとの固定パス（figs/<id>/fig<k>.png）に変更。
+- scripts/r2_stage3_check.py を WNPC で実行（79件・181枚・16.7秒）: 512x512、真っ白0、作図前後で全件変化、2608件の事実が最後の図で数値的に成立（不成立0）。1問3枚を目視確認。tests 27件成功。
+- 注意: 図は点が増えると縮尺が変わる。補助点の位置は条件を満たす1つで、生成機の元の位置とは別になりうる。
+- 次: 段階4（生成速度と容量の測定、10万問の見積もり、件数制御）。
+
+2026-10-06 R2 図の有効性の比較（GenesisGeo-2B）
+- 補助点1つの290問×K=8で、図あり／別問題の図／白紙／文字のみを比較。DDAR で目標を証明できた割合: 71.0% / 69.7% / 62.6% / 62.2%。
+- 図あり−白紙は+8.4ポイント（有意）、図あり−別問題の図は+1.3ポイント（有意でない）。図の効果の大部分は、問題固有の情報ではなく、学習時と同じ種類の画像が入力にあることで説明できる。
+- 限界: モデルは同じ生成機のデータで学習済み、深さ1・補助点1つ、初期図のみ、公式のモデルは補助作図の提案のみを学習。結果は docs/R2_DESIGN.md。
+- 注意: 稼働中の genesisgeo-vllm コンテナには scripts のマウントが無く、docker compose cp でスクリプトを渡した。
+
+2026-10-07 R2 図の描き方の変種の比較
+- scripts/r2_figure_variants.py を追加。290問×K=8で、official / annot_off / lower_big / zoom / zoom_lower_big を、その問題の図と別問題の図で比較（逐次実行で13078秒）。
+- 結果: gap（その問題の図−別問題の図）は全変種で2ポイント以下、official より有意に大きい変種なし。lower_big は成功率が-6.7ポイント（学習時と違う見た目に弱い）。zoom は+1.3ポイントだが有意でない。
+- 判断: R2 の図は official のまま。zoom を R3 の比較候補に残す。このモデルでは、描き方の良し悪しは測れない（再学習が必要）。
+- 反省: 実行が遅いのを見て変種ごとの並列プロセスを追加で起動したが、元の実行が先に完了し、並列分は不要だった（停止済み）。進み具合は、リクエスト数から概算した見込みで、実際より遅く見積もっていた。
+
+2026-10-07 R2 段階4（途中）
+- scripts/r2_build_dataset.py（検証・図・容量の測定つき作成）、vlma/steps.py の to_compact/expand、vlma/figures.py の find_placement_seed、vlma/verify.py の engine（c/python/both）を追加。tests 35件成功。
+- 検証中に4つの問題を発見して対処: (1) Python版DDARは退化配置で弱い、(2) C++版はARで導いた角度をPython側に返さない→両方を使い、どちらかで成立すれば受理、(3) 補助点の置き場所が生成機と逆になる問題（4.5%）→記録された事実が成り立つseedを探して保存、(4) 補助点の条件が3つ以上の問題（1.35%）は公式の変換関数が非対応→除外。
+- 2000問: 生成104秒、作成81秒（20ワーカー）、1973問が通過。分布・容量は docs/R2_DESIGN.md。
+- 10万問の生成を WNPC で開始（artifacts/genesisgeo/r2/gen-100k、22スレッド、見積もり約1.5時間）。完了後に scripts/r2_build_dataset.py を実行する。
+- 未解決: 情報欄（numerical_check）は証明が使う事実だけを列挙しており、推論時には作れない（先の証明を知っている）。案A: モデルが出力する（GenesisGeo と同じ）、案B: 図から機械的に求める、案C: 空にする。ユーザーの判断待ち。
+- 注意: stage1〜3 の記録は、Python版DDAR（seed固定）での結果。検証器の変更後も stage2 の確認（316/316）は同じ結果。
+
+2026-10-07 R2 段階4（10万問の作成）
+- 生成100027件（46分）→ 検証・図の作成で90608問が通過（98分）。通らなかった9419件の内訳: 変換未対応8721、作図が置けない679、手が成立しない16、エラー3。除外は2000問の試行（1.35%）より多い8.6%で、補助点の条件が3つの問題が大半。
+- 不足分を --base_seed 10000000 で12019件追加生成し、10519問が通過。統合して10万問（6915197ターン、図211767枚）。
+- 検証中の失敗: 除外問題の再分類で、作図が失敗した問題に64個の seed を試す変更を入れ、2時間以上止まった。再試行を3回に制限し、33秒で終了。
+- 整合性チェック: id一意、アクション解析、図のファイル（欠落0）、ターン数が一致。保存データだけから無作為2000問を再検証して全て成功。
+- vlma/steps.py の to_compact に fl_problem を追加。既存の10万問は生成機の出力から補った。
+- scripts: r2_build_dataset.py, r2_merge_datasets.py, r2_finalize.py, r2_remainder.py, r2_diag_*.py を追加。
+- 残り: 情報欄の方針（案A/B/C）はユーザーの判断待ち。負例は作り方を R3 の前に決める。
+
+2026-10-07 情報欄と報酬の決定、報酬の設計に向けた調査
+- ユーザー決定: 情報欄は案B（図から機械的に求められる事実のみ）。報酬は、最短の導出→強い報酬、無駄のある導出→弱い報酬、証明に必要ない過程→負の報酬。REQUIREMENTS.md に記録。
+- 調査: (1) 保存した10万問・680万手の全手が目標の導出に必要（不要な手は0件）。(2) C++版DDARの閉包は平均536件、保存した証明は平均23.8手（約4%）。残りは真だが不要な事実で、負の過程を根拠つきで作れる。(3) 1つの事実につき導出は1つだけ記録され、別経路は閉包から得られない。(4) 根拠の番号は未検証なので、必要・不要の判定は閉包の導出を基準にする。
+- scripts/r2_diag_cone.py, r2_diag_closure.py を追加。
+- 判断待ち: 情報欄に載せる事実の範囲、報酬の最短の基準。
+
+2026-10-07 情報欄（案B）の実装と、検証器の抜け道
+- ユーザーの回答「2」「3かも」を、情報欄=辺の長さ・角度の数値＋点の座標、と解釈（要確認）。vlma/info.py を追加。図ごとの座標 figure_points を保存し、expand が情報欄を作る。numerical_check/trivial は入力に使わず、手の根拠からも番号を外す。tests 36件成功。
+- 作成済み10万問に r2_add_figure_points.py で座標を追加（実行中）。r2_build_dataset.py も座標を保存するようにした。
+- 検証器の抜け道を発見: 作図のあとに目標の文を出すと、100問すべてで1手で受理・完了になる。報酬（最短ほど強い）を設計する前に、手の妥当性の確認を強化する必要がある。DDARの記録した根拠が述べた事実に入っているかの確認は、保存した証明の90.7%でしか満たされない（ARの手）。別案: 書いた根拠だけでDDARを実行する。
+- 報酬の実装は、この抜け道の対処方針が決まるまで保留。
+
+2026-10-07 情報欄の追記方式・検証の強化・報酬
+- ユーザー決定: 抜け道への対処は案2、情報欄は適用した手に関わる点の長さと角度を追記する方式。REQUIREMENTS.md に記録。
+- vlma/info.py（InfoLog）で情報欄を追記方式に変更。長さは中央値906文字（全列挙は2410）、最大3356文字（同20440）。
+- vlma/verify.py: 書いた根拠の事実だけを前提にC++版DDARを1段実行して導けるかを確認。作図後に目標を直接出す近道は100問中0件の受理（以前は100問）。却下の理由に invalid_citation, not_derivable を追加。
+- 誤却下を2つ修正: 定数を含む前提の読み飛ばし（parse_facts に置換）、circle を目標にできないC++版DDAR（NO_GOAL_CHECK）。保存した正しい証明は850問・36843手で全手受理、全て最短。
+- vlma/reward.py を追加（値は仮）。tests 41件成功。
+- scripts: r2_diag_{shortcut,deps,cited,reference,citation,circle,cone,closure}.py, r2_info_size.py を追加。
+- 未実施: 負例データの生成、10万問の全件再検証、報酬の値の決定。
+
+2026-10-07 規則名・演算子の記法・命名の検査
+- ユーザー提案に従い、規則を番号から名前に変更（vlma/rules.py、docs/R2_RULE_NAMES.md）。検証器は未知の名前・合わない述語を unknown_rule で却下。1手あたり59→81文字（約37%増）。tests 52件成功。
+- 「命名を検査したか」との問いで照合をやり直し、ARの3分類の間違い（coll/rconstは長さ、congは長さと比の両方）と、公式名が定義と合わないもの（r49,r50,r72,r73,r108,r109）を修正。
+- 述語の演算子化はトークン数が減らないことを測定（現在37.0、単純な3種37.0、全て39〜41）。ユーザー判断で導入しない。
+- 前の誤り: 先に circle を目標にできないと断定したが、図の座標を小数6桁に丸めた分析用の数値で測った見かけだった。例外を外し、circle のみ2段で確認する。
+- 規則名がその手に実際に使えるか（その規則だけで導けるか）は未検証。
+
+2026-10-07 規則名の検証と全件の変換確認
+- 規則名の検証を追加: 書いた規則だけを有効にしたDDARで、書いた根拠から結論が導けるか。通らなければ rule_mismatch。保存した証明60問1667手は全て通る。別の規則名を付けると99.7%で却下（識別力）。tests 53件。
+- 全10万問・680万手で、規則の番号→名前の変換と、名前→番号の復元を確認（エラー0、43種類の名前）。保存方式は番号のまま、展開時に名前（ユーザー確認済み）。
+- 規則名の検証を入れた検証器での、保存した証明の全件受理の確認（250問×3範囲）は実行中。
+
+2026-10-07 R3 に向けた調査
+- モデルは Qwen3.5-0.8B（ユーザー確認。REQUIREMENTS の Qwen3.1 は誤記）。HF で実在と画像入力を確認。Base 版あり、継続事前学習なら Base を推奨（未決）。
+- WNPC の既存イメージは transformers 4.57.6 で qwen3_5 が無い。fla/causal_conv1d は未導入で、Blackwell で使えるかは未確認。
+- トークン数（先頭1500問・86072サンプル）: 合計（画像256含む）中央値2147、90%点5118、最大10164。8192で99.6%が入る。docs/R3_PREP.md に記録。
+- Transfer の規則名の確認は、特定の規則だけでは再現できないエンジンの仕組みなので、根拠に eqpoint を含むことに変更（保存した4175手すべてが満たす）。tests 54件。
+
+2026-10-07 R3 の準備と1,000問の学習
+- 学習用の環境（Dockerfile.train、vlma2-train:r3）を構築: Python 3.11、torch 2.8.0+cu128、transformers 5.19.0。causal-conv1d と fla が RTX PRO 4500 Blackwell で動作し、高速化は3.6倍（定常 5,289 vs 1,482 トークン/秒）。勾配チェックポイントを外しても速くならない（メモリが倍）。
+- 損失をかける位置だけ出力の確率を計算する形に変更。モデル本来の損失と完全に一致を確認。メモリ 16.1→4.7GB（4,885トークン、推論時）。
+- 過学習の確認: 8サンプルで損失 1.396→0.0000、出力が 8/8 完全一致。
+- 分割（r3_make_split.py）: 作図の群ごと。訓練 97,272 / 検証 1,001 / テスト 1,002 / 除外 725。10万問は独立な図が約2,159個しかなく（最初の作図は4種類で約8割）、多様性が低いと判明。生成機に1つの図から作る問題数の上限を付ける修正（patches/genesisgeo-goal-cap.patch）を入れ、図を増やす生成を実行中（gen-div-a/b）。
+- 方式 A'、全ターンを使い、問題数で量を絞る（最初の記載「ターン数を絞る」はユーザーの指摘で訂正）。1,000問（独立な図から1問ずつ）を選定（subset_1000.json、54,014サンプル/エポック）。
+- 1,000問の学習 run1 を開始（lr 1e-5、更新あたり32サンプル、約1,690更新、約5時間の見込み）。学習前: 検証の損失 1.649、正解率 68.8%、一般文章の perplexity 14.64（wikitext-103 テスト）。
+- ブレンド用データを取得（/artifacts/blend: FineWeb-Edu 2万文書、OpenWebMath 8千文書、COCO 5,120組）。今回の学習には使わない。忘却は perplexity で測る。
+- Hugging Face（SuzukiHinata）にログイン済み。private データセットのバックアップ用に、データを整理中（scripts/r3_pack_for_hf.py）。
+- Slack 通知の仕組み（vlma/notify.py、scripts/r3_watch.py）を作成。Webhook URL か、Bot トークンとチャンネルが WNPC の .env に置かれると動く。
+
+2026-10-07 Slack 通知（スレッド対応）と、全プロジェクト共有の設定
+- Slack アプリの Bot トークンとチャンネル IDを、WNPC の vlma-2/.env に設定。スレッド対応の通知（vlma/notify.py）を実装し、テスト4件（模擬の Slack サーバー）と実機の投稿（親・返信・チャンネルにも表示する返信）で確認。
+- 学習 run1 の監視（scripts/r3_watch.py、コンテナ vlma-watch-run1）を、スレッド対応のものに入れ替えた。30分ごとの進捗はスレッドに積み、終了と警告はチャンネルにも表示する。
+- 他の AI 学習プロジェクトでも使えるよう、親ディレクトリ（Mac: <LOCAL_RESEARCH_DIR>、WNPC: <WORKDIR>）に、SLACK_NOTIFICATIONS.md（使い方）、_shared/slack_notify.py（共有モジュール。.slack.env を自動で読む）、AGENTS.md と CLAUDE.md（案内）を置いた。
+- 認証情報（トークンとチャンネル ID）の共有ファイル .slack.env を、Mac と WNPC の親ディレクトリに置いた（権限は自分だけ）。Webhook の URL は、共有していない（vlma-2/.env のみ）。
+- 認証情報の更新時は、vlma-2/.env と、Mac・WNPC の research/.slack.env の3か所を差し替える。
+
+## 2026-10-07 Slack 通知のテンプレート化
+- 共通テンプレート research/_shared/slack_templates.py（Reporter: start/progress/evaluation/warning/stalled/failure/finish/job）と試験 _shared/test_slack_templates.py（7件、通過）を作成。SLACK_NOTIFICATIONS.md §10、親の AGENTS.md/CLAUDE.md に利用規則を追記。WNPC にも同期済み。
+- scripts/r3_watch.py を Reporter 利用に変更。docker-compose.yml の train に ../_shared:/shared:ro を追加。ドライランで新形式の文面を確認し、vlma-watch-run1 を入れ替えた（既存の slack_thread.json があるので同じスレッドに続く）。
+
+## 2026-10-07 Slack に進捗のグラフを添付
+- 依頼: 学習の進捗をグラフにして Slack に添付（頻度は、検証のたびと終了時。ユーザー確認済み）。
+- _shared/slack_notify.py に send_file（files.getUploadURLExternal → 送信 → completeUploadExternal、スレッドに添付）、_shared/slack_charts.py（matplotlib で PNG。パネルの形は冒頭）、Reporter.chart を追加。_shared/test_slack_charts.py（5件）と既存の7件、通過。Bot トークンの files:write は確認済み。
+- scripts/r3_watch.py: log.jsonl から6パネル（訓練損失、検証損失、正解率、一般文章の perplexity、速度、学習率）を作り、検証のたび（step<N>）と終了時（final）に添付。vlma/notify.py は共有の複製なので、画像の送信は共有側にだけ作った。
+- Dockerfile.train に matplotlib を追加して再ビルド（vlma2-train:r3、3.11.2）。実行中の run1 には影響なし。実ログ（run1）で描画を目視確認。
+- SLACK_NOTIFICATIONS.md §10 に追記。WNPC に同期済み。実機の添付は、run1 の終了後に確認する。
+- 実機で確認: run1 の終了時に、新しい watch（コンテナを新イメージで作り直し）が、最終の検証、グラフ（chart-step1687.png）、完了の通知を、同じスレッドに送った（Slack の履歴で確認）。最後の検証と終了が同じ step で、同じグラフが2枚出たため、終了時のグラフは、最後の検証と step が違うときだけ送るよう修正。
+
+## 2026-10-07 方式 B（1問 = 1本の系列）で学習 runB
+- 依頼: 同じデータで B 方式の学習。B の定義は記録に無かったため、確認して「1問 = 1本の系列、全ターンの出力に損失」に決定（ユーザー確認済み）。条件は「計算量を揃える（問題数は増えてよい）」（ユーザー確認済み）。
+- 実装（vlma/data.py）: build_sequence（ターンごとに、画像［最初と作図の手のあと］、問題［最初だけ］、情報欄に新しく加わった数値 info_delta、空の thinking の枠、出力と <|im_end|>。<history> は書かない）、target_mask（各ターンの </think> と改行のあとから <|im_end|> までに損失）、VlmaSeqDataset。tests 4件追加（計 75件、genesisgeo コンテナで通過。Mac には newclid が無く動かない）。
+- 確認（scripts/r3_seq_check.py、実トークナイザー、1,000問）: 全問で損失の区間数 = ターン数。最初のターンの損失の位置は、A' の1ターン目と一致（50問）。1問は平均 4,094 トークン（中央値 3,586、90%点 7,080、最大 14,771）、損失をかけるのは平均 2,027（49.5%）、画像 平均 2.1枚。12,288 超は 4問。
+- 計算量: run1 の処理トークン ≈ 6,550/s × 316分 ≈ 1.24億。B は 1問 ≈ 4,090〜4,400 トークンなので、約 28,200 問で同程度。問題の一覧 subset_B_28200.json: 先頭は run1 と同じ 1,000問（subset_1000）、残りは独立な図（種 2,150）を順に回って1問ずつ足した（1図あたり最大 27問。r3_make_subset.py に --base を追加）。
+- 学習: r3_train.py に --format seq を追加。コンテナ vlma-train-runB（lr 1e-5、warmup 50、更新あたり 17問、1エポック = 1,658更新（run1 は 1,687）、検証は 250更新ごと）。監視 vlma-watch-runB（Slack、グラフつき）。
+- 注意: B の検証（検証の問題 100問の全ターン）は、A' の検証（6ターン/問）と、損失・正解率を直接比べられない。A' と B の比較は、生成して検証器で通る率で行う（次の段階）。
+- 最初の runB は、速度が約 3,000 トークン/秒（run1 は約 6,550）で、GPU のメモリが 32GB の上限いっぱいだった。原因: 方式 B は1サンプルに損失の位置が約 2,000 あり、語彙（約25万）ぶんの fp32 の logits がメモリを埋めた（A' は約 20 位置）。r3_train.py の loss_and_acc を、1,024 位置ずつ・チェックポイント付きで計算する形に変更（結果は同じ。再開後のベースラインの検証損失 0.745568 が修正前と一致）。runB を作り直し、約 7,500 トークン/秒、メモリ 21GB、残り約 4 時間。
+
+## 2026-10-08 Slack: チャンネルには投稿しない
+- 依頼: 評価の警告（一般文章の perplexity が 10% 超悪化）などが、毎回チャンネルにも出て散らかるため、チャンネルへの投稿をやめる。
+- _shared/slack_templates.py: Reporter に to_channel（既定 False）を追加。False のとき、警告・停止・失敗・完了・悪化の警告つきの評価も、スレッドの中だけに投稿する（broadcast を送らない）。試験を2件に分けて追加（計13件、通過）。SLACK_NOTIFICATIONS.md、research/AGENTS.md、CLAUDE.md に、「チャンネルには表示しない。使うのはユーザーが求めたときだけ」を追記。Mac と WNPC に同期済み。
+- vlma-watch-runB を入れ替えた（スレッドは同じ。入れ替え直後に、直近の進捗と評価が1回だけ重ねて出る）。失敗・停止・完了も、チャンネルには出なくなったので、スレッドを見に行く必要がある。
+
+## 2026-10-08 ベンチマーク機構（docs/R4_BENCH.md）
+- 依頼: ベンチマーク機構を作る。方針: 損失・正解率（教師強制）は A'/B で比べられないので、モデルに実際に解かせ、既存の検証器（StepVerifier）で測る。1問 = 1エピソード、1手ずつ検証。主指標は、目標に届いた割合。
+- vlma/env.py（Episode: 状態・検証・受理した作図の図の描き直しと情報欄の更新・結果）、vlma/envserver.py（HTTP。DDAR は CPU なのでプロセスを複数）、vlma/bench.py（状態から学習データと同じプロンプトを作る TurnPrompt/SeqPrompt と、集計 summarize）、scripts/bench_run.py（モデルを読み、複数問題をまとめて生成、環境に送る。再開可、Slack はスレッドの中だけ）、scripts/bench_make_set.py、scripts/bench_env.sh。vlma/verify.py に constructions を追加。
+- 試験 tests/test_env.py: 参照の再生で全手受理・目標到達（shortest）、環境の状態（情報欄・過去の手・図を見せる位置）が学習データの各ターンと一致、プロンプトが A'（各ターン）と B（系列）の学習データと完全に一致、却下は状態を変えない、試行の上限、HTTP の往復、検証器の例外の扱い。全体 84件、通過。
+- 試験運転で見つかった不具合: run1 のモデルが、点 l を点 a に重ねる作図（coll a c l; coll b d l）をし、検証器（Python 版 DDAR）が AttributeError で落ち、環境サーバーが 500 を返した（6問中4問）。検証器: エンジンの例外はそのエンジンを使わない（全部だめなら not_hold）。環境: 検証器の例外は却下（not_hold）にする。クライアントは、環境のエラーの本文を残す。
+- 未対応（docs に記載）: 退化した作図（新しい点が既存の点と重なる）を検証器は受理する。参照が全部通るかを確かめてから、却下する規則を足す。
+- 最初の測定（評価用 200問、bench_200.json = テスト分割から seed 0、厳密）: run1 → turn、runB → seq の順に、コンテナ vlma-bench で実行中。結果は /artifacts/bench/run1-strict、runB-strict。
+- 2026-10-08 ユーザーの提案: 間違えた回数ではなく、決められたターン以内に必要な事実を見つけられたかで打ち切る。bench_run.py の --retries の既定を -1（回数では打ち切らない。却下も1ターンを使い、ターン予算＝参照の手数から決めた試行の上限まで続ける）に変更。--seed を追加。summarize に reference_coverage（参照証明が使う事実のうち、予算内で見つけた割合）と success_within（参照の手数の 1 / 1.5 / 2 倍の試行内で届いた割合）を追加。tests 10件（test_env）通過。docs/R4_BENCH.md を更新。最初の測定（run1-strict、runB-strict）は、旧設定（--retries 0）。
+- 2026-10-08 ベンチマークの速度の計測（scripts/bench_run.py に、生成と環境の時間の内訳 profile と --max-iters を追加）。runB のモデル、新設定（ターン予算）。batch 16: 定常で生成 約5.6秒 + 環境 約1秒 / 回（1手あたり 約0.4秒）。環境は最初の約10回（図の描き直しと DDAR の飽和）だけ重い。生成した最大トークン数は 58〜78（上限192に達せず、長文出力による待ちは原因ではない）。batch 48: 他のジョブがいない間は 約16秒/回（1手あたり 約0.34秒）だが、WNPC の GPU を使う別プロジェクトのジョブ（nedo-infer-run03、nedo-sft-run04）が始まると、同じ回で 1.3〜6.6 分/回に落ちる。2回測って、2回とも、別ジョブの開始時刻（07:39:50）と、遅くなり始めた時刻が一致した。速度は、GPU の共有で数倍変わる。
+
+## 2026-10-08 GitHub 管理の開始（suzukihinata-dev/vlma-2）
+- 依頼: このリポジトリを GitHub（suzukihinata-dev）で管理する。データとモデルは Hugging Face に保存し、README にそのように書く。
+- .gitignore: データ・成果物（/data/, /artifacts/, /checkpoints/, /outputs/）、重みファイル（*.safetensors, *.pt, *.bin など）、アーカイブ、秘密情報、__pycache__ と .pytest_cache を除外。個人用の作業ファイル（.obsidian/, .DS_Store, 無題のファイル.*, ajjfiodajofdsa.md, SCR-*.png）も除外。
+- README.md: 構成、データとモデルは Hugging Face（ユーザー SuzukiHinata）に保存すること、取得方法、保存先の表を追加。保存先の repo ID は未作成のため、表では「作成前」と記載。
+- 秘密情報の確認: トークン・秘密鍵の形式を検索し、該当なし（ヒットは localhost バインドのみ）。
+
+## 2026-10-08 Hugging Face データセットの接続
+- 依頼: データの保存先は https://huggingface.co/datasets/SuzukiHinata/vlma-2。README の表と取得コマンドに反映。
+- 確認（公開 API）: repo は存在。ファイルは README.md と .gitattributes のみで、データは未アップロード。公開設定（public）になっている。README は「データは private」と記載しているため、ユーザーに確認中。
+- ユーザー確認: データセットは公開（public）のまま。README の「private」の記載を「公開（public）」に修正。
+
+## 2026-10-08 IMO-AG-30 のベンチマーク基盤（全系列 / 作図だけ）
+- 依頼: AlphaGeometry と比べるため、IMO-AG-30 を、全系列出力と作図だけ出力の 2 通りで測る基盤。計画: （ローカルの計画ファイル）（承認済み）。
+- scripts/bench_make_imo.py（新規）: GenesisGeo の benchmarks/imo_30.txt を読み、renamed() + problem_to_dsl で学習データと同じ形のプロンプトにし、配置の seed・初期の図・図の座標・DDAR だけで解けるか（run_ddar_c）を記録。/artifacts/bench/imo30 に出力（problems.jsonl、turn_index.json、figs/、imo30.json、baseline.json）。29/30 が符号化でき（2008_p6 は PointTooFarError）、DDAR 単独で 15 問。GenesisGeo の文書の「元の DDAR」14 問を、すべて含む（差は 2014_p4 のみ）。
+- vlma/env.py: 参照なしの問題（n_reference = None、試行の上限は固定 150）と、mode="construct"（作図を受理するたびに run_ddar_c で目標を判定。APPLY で終了。リセット時に solved_alone）を追加。vlma/envserver.py: /reset が mode・max_attempts・max_constructs を受ける。scripts/bench_env.sh: 3つ目の引数に data-dir。
+- scripts/bench_run.py: --mode、--samples（1問あたりの本数。0本目は貪欲、残りはサンプリング）、--max-constructs、--max-attempts。baseline.json があれば、問題ごとの集計（vlma/bench.py の summarize_problems、問題ごとの表 table.md）。post() が、エラー時に引数 body を上書きして再試行で別の内容を送る不具合を修正。
+- vlma/bench.py: summarize を、参照証明が無い問題でも動くように変更。summarize_problems（solved、solved_by_model、solved@k、DDAR 単独を分ける）、problems_table、参照値（AlphaGeometry 25/30、GenesisGeo 29/30）。
+- 試験: tests/test_env.py に追加。全体 91 件通過。
+- 試運転: run1（A'）の construct、4本、29問 → 30 問中 16 問（DDAR 単独 15 + モデル 1: 2015_p3、点 b からの垂線の足を作図。正当）。全系列モードのモデル試運転は、GPU が別プロジェクトの nedo-grpo-run01 に埋まり（32.5GB 中 32.48GB）、モデルの読み込みで CUDA エラー。環境側は HTTP で確認済み。
+- 残り: GPU が空いたら、run1・runB で、construct（--samples 16）と full を実測。
+- 2026-10-08 IMO-30 の本番の測定を、GPU が空くのを待って自動で始める準備: scripts/bench_queue_imo30.sh（run1・runB の construct --samples 16 → full。train のコンテナ内。GPU のメモリ使用量 < 8000MiB が3回続くのを待つ）。ユーザーによると、GPU は3時間後に空く。いま WNPC は、docker から GPU が見えず（nvidia-container-cli: WSL environment detected but no adapters were found）、ホストの nvidia-smi も NVIDIA ドライバーと通信できない（nedo-grpo-run01 が消えたあと。原因は未確認。ドライバー・WSL・docker の再起動は、他のジョブを巻き込むので、していない）。コンテナの外（Mac 側の背景プロセス）で、nvidia-smi が数字を返し、空きを確認してから、ssh でキューを起動する。Mac 側の待機は、このセッションが続く間だけ動く。
+
+## 2026-10-08 公開前チェックと修正
+- 依頼: リポジトリを public にする前の確認。認証情報の漏えいは無し（履歴3コミット・追跡111ファイルを検索）。
+- 修正: SSH.md を削除。ホスト名・ユーザー名・作業パス・Slack の App ID/チャンネル ID を PLAN.md、docs/、log/ から伏せ字に置換。LICENSE（Apache-2.0）を追加。README の保存先表（モデル repo 作成済み、データ再パック中）とライセンス節を更新。
+- 未対応: 過去コミットには置換前の内容が残る（履歴の書き換えは未実施）。

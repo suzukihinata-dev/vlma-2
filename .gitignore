@@ -1,0 +1,39 @@
+# データとモデルは Git に入れない。Hugging Face に保存する（README.md 参照）
+/data/
+/artifacts/
+/checkpoints/
+/outputs/
+*.safetensors
+*.pt
+*.pth
+*.bin
+*.ckpt
+*.npy
+*.npz
+*.parquet
+*.arrow
+*.onnx
+*.gguf
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+
+# 秘密情報
+.env
+*.pem
+*_rsa
+*_ed25519
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# OS・エディタ・個人用の作業ファイル
+.DS_Store
+.obsidian/
+無題のファイル.*
+ajjfiodajofdsa.md
+SCR-*.png

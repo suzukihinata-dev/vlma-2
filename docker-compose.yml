@@ -1,0 +1,72 @@
+services:
+  genesisgeo:
+    build:
+      context: .
+      dockerfile: Dockerfile.genesisgeo
+    image: vlma2-genesisgeo:r1
+    working_dir: /opt/genesisgeo
+    volumes:
+      - ./artifacts:/artifacts
+      - ./scripts/r1_genesisgeo_verify.sh:/usr/local/bin/r1_genesisgeo_verify:ro
+      - ./scripts:/opt/vlma2-scripts:ro
+      - ./vlma:/opt/vlma2/vlma:ro
+      - ./tests:/opt/vlma2/tests:ro
+    environment:
+      PYTHONPATH: /opt/vlma2
+    command: bash
+  genesisgeo-model:
+    build:
+      context: .
+      dockerfile: Dockerfile.genesisgeo-model
+    image: vlma2-genesisgeo-model:r1
+    gpus: all
+    working_dir: /opt/genesisgeo
+    volumes:
+      - ./data/genesisgeo-2b:/models/genesisgeo-2b
+      - ./artifacts:/artifacts
+      - ./scripts/r1_genesisgeo_model_verify.py:/usr/local/bin/r1_genesisgeo_model_verify.py:ro
+    command: bash
+  genesisgeo-vllm:
+    build:
+      context: .
+      dockerfile: Dockerfile.genesisgeo-vllm
+    image: vlma2-genesisgeo-vllm:r1
+    gpus: all
+    shm_size: 8gb
+    working_dir: /opt/genesisgeo
+    volumes:
+      - ./data/genesisgeo-2b:/models/genesisgeo-2b:ro
+      - ./artifacts:/artifacts
+      - ./scripts/r1_genesisgeo_vllm.sh:/usr/local/bin/r1_genesisgeo_vllm:ro
+      - ./scripts:/opt/vlma2-scripts:ro
+    command: ["bash", "/usr/local/bin/r1_genesisgeo_vllm"]
+  train:
+    build:
+      context: .
+      dockerfile: Dockerfile.train
+    image: vlma2-train:r3
+    gpus: all
+    shm_size: 16gb
+    working_dir: /opt/vlma2
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      SLACK_CHANNEL: ${SLACK_CHANNEL:-}
+    volumes:
+      - ./artifacts:/artifacts
+      - ../_shared:/shared:ro   # research 配下で共有する Slack 通知のテンプレート（SLACK_NOTIFICATIONS.md）
+      - ./data/hf-cache:/hf-cache
+      - ./vlma:/opt/vlma2/vlma:ro
+      - ./scripts:/opt/vlma2/scripts:ro
+      - ./tests:/opt/vlma2/tests:ro
+    command: bash
+  alphageometry:
+    build:
+      context: .
+    image: vlma2-alphageometry:r1
+    working_dir: /opt/alphageometry
+    volumes:
+      - ./data/ag_ckpt_vocab:/opt/alphageometry/ag_ckpt_vocab:ro
+      - ./artifacts:/artifacts
+    command: bash

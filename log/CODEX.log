@@ -1,0 +1,13 @@
+2026-10-06 R1 AlphaGeometry v1
+- <gpu-host> の Windows Docker Desktop に vlma-2 を配置。Dockerfile、Compose、検証スクリプト、セットアップ手順を追加。
+- 上流 AlphaGeometry 6777cb586cbb46beed28db12dc72c69770b68337、Meliad e8af0543441222c1c4c60d58803511f7cf92908b、Python 3.10.19 を固定。画面なし環境のため TkAgg を Agg に変更。
+- 公式 Google Drive からの gdown は公開リンク取得に失敗。Hugging Face の Wauplin/alphageometry@77df8a094307f7c2148f2b87b6d8986f65060b5f から3ファイルを取得し、固定 SHA-256 を照合。
+- Docker build と pip check は成功。公式テストは既知の外部 Meliad スコア比較1件のみ失敗（上流 Issue #14 と同種）。DDAR の translated_imo_2000_p1 は証明を出力。モデル付き orthocenter は補助作図後に Solved.。検証コマンドの終了コードは 0。
+- 生ログ、コミット、ファイル SHA-256 は接続先の <WORKDIR>\vlma-2\artifacts\ に保存。R2・R3 は未着手。
+
+2026-10-06 R1 GenesisGeo への切り替え
+- ユーザーの方針変更に従い、GenesisGeo 22fe601034ddc32b095c38d07a29ba051bdc8142 と GenesisGeo-2B 3295483676aa256cbc90b013adae97a1bb45e043 を別Dockerサービスで固定。旧AlphaGeometryは消さずに記録として維持。
+- 上流の少量生成が書き込み待ちで終了しない箇所に固定版向けパッチを適用。DockerイメージをWNPCで構築し、C++モジュールの読み込みを確認。
+- 上流テスト60件成功、5件は期待される失敗。DDARが直交心を `r43 Orthocenter theorem` で証明。新規の図付き問題56件について問題・証明・PNGの存在を確認し、図を1枚目視確認。
+- 公開2BモデルをGPUへ読み込み、図と問題文から補助作図を生成。GenesisGeoの変換関数で作図命令に解析できることを確認。両検証コマンドは終了コード0。ログ・依存一覧・重みSHA-256はWNPCの `artifacts/genesisgeo/` に保存。
+- モデル提案をDDARに戻す閉ループ、IMOの解答率、大規模生成速度、図の全件検証は未実施。モデル読み込み時のトークナイザー警告も別途調査が必要。

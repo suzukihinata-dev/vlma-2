@@ -1,0 +1,44 @@
+FROM python:3.10.19-slim-bookworm@sha256:7de0b3589a2b35452fab55d753aa773d59afcbb88220ab118d6604a398cd65e1
+
+ARG GENESISGEO_COMMIT=22fe601034ddc32b095c38d07a29ba051bdc8142
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/opt/genesisgeo/src \
+    MPLBACKEND=Agg \
+    RAY_DEDUP_LOGS=0
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       git build-essential cmake libcairo2 libglib2.0-0 libgl1 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git clone https://github.com/ZJUVAI/GenesisGeo.git /opt/genesisgeo \
+    && git -C /opt/genesisgeo checkout --detach "$GENESISGEO_COMMIT" \
+    && test "$(git -C /opt/genesisgeo rev-parse HEAD)" = "$GENESISGEO_COMMIT"
+
+WORKDIR /opt/genesisgeo
+
+COPY patches/genesisgeo-small-batch.patch /tmp/genesisgeo-small-batch.patch
+RUN git apply --check /tmp/genesisgeo-small-batch.patch \
+    && git apply /tmp/genesisgeo-small-batch.patch
+
+# vlma-2: 1つの図（乱数の種）から作る問題数に上限を付ける（環境変数 GENESISGEO_MAX_GOAL_GROUPS）。
+COPY patches/genesisgeo-goal-cap.patch /tmp/genesisgeo-goal-cap.patch
+RUN git apply --check /tmp/genesisgeo-goal-cap.patch \
+    && git apply /tmp/genesisgeo-goal-cap.patch
+
+# Install only R1 runtime/test dependencies from PyPI. Upstream's optional
+# `full` extra adds training packages and its core spec fetches adjustText
+# through an unrelated HTTP proxy; neither is needed for DDAR or generation.
+RUN python -m pip install --no-cache-dir \
+       'numpy<2' 'scipy>=1.15,<1.16' 'pandas>=2.3,<3' \
+       'matplotlib>=3.7,<4' 'markupsafe==3.0.2' \
+       'ray[default]' millify cairosvg pillow pyvis adjustText \
+       'httpx[socks]' pybind11 pytest pytest-mock setuptools_scm \
+    && python -m pip install --no-cache-dir --no-deps -e .
+
+RUN python -c 'import newclid.DDAR.build, newclid.matchinC, newclid.generation.auxiliary, newclid.dependencies.geometry'
+
+COPY scripts/r1_genesisgeo_verify.sh /usr/local/bin/r1_genesisgeo_verify
+
+CMD ["bash"]
